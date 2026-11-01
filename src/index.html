@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>科普爆点动画周刊 EP01 · 三颗本不该存在的行星</title>
+<style>
+  html,body{margin:0;padding:0;background:#0E1116;overflow:hidden;width:1280px;height:720px}
+  canvas{display:block;width:1280px;height:720px}
+</style>
+</head>
+<body>
+<canvas id="c" width="1280" height="720"></canvas>
+<script>
+/* ============================================================
+   科普爆点动画周刊 EP01  —— HTML/Canvas 逐帧渲染页
+   风格：M1 白板手绘的"先看见再命名" + B3 粒子聚形 + 深空深底
+   配色：3b1b 铁律 —— 背景 #0E1116 / 正文 #ECE6D9
+         主色三色：#58C4DD 蓝 / #F4D345 黄 / #FC6255 红
+   暴露 window.renderAt(t)，?export=1 时不跑 requestAnimationFrame
+   ============================================================ */
+var W = 1280, H = 720;
+var CV = document.getElementById('c'), X = CV.getContext('2d');
+var BG = '#0E1116', FG = '#ECE6D9', BLU = '#58C4DD', YEL = '#F4D345',
+    RED = '#FC6255', ORG = '#F08A4B', DIM = '#7C8794';
+var FONT = '"Noto Sans CJK SC","Noto Sans SC","Noto Sans CJK JP",sans-serif';
+var SCRIPT_T = 310;
+var DUR = parseFloat((location.search.match(/dur=([\d.]+)/) || [0, 310])[1]) || 310;
+var SUBS = window.SUBS || [];
+
+/* ---------- 基础工具 ---------- */
+function cl(v,a,b){ return v<a?a:(v>b?b:v); }
+function inv(x,a,b){ return cl((x-a)/(b-a),0,1); }
+function ez(x){ x=cl(x,0,1); return x*x*(3-2*x); }
+function eo(x){ x=cl(x,0,1); return 1-Math.pow(1-x,3); }
+function lp(a,b,t){ return a+(b-a)*t; }
+/* 场景可见度：淡入淡出 */
+function sg(x,s,e,fi,fo){ fi=fi===undefined?0.5:fi; fo=fo===undefined?0.5:fo;
+  return Math.min(ez(inv(x,s,s+fi)), 1-ez(inv(x,e-fo,e))); }
+
+function font(s,w){ X.font = (w||500)+' '+s+'px '+FONT; }
+/* 单行文本：超宽自动缩字号，杜绝出画 */
+function txt(s,x,y,size,color,align,weight,alpha,maxW){
+  X.save(); X.globalAlpha = alpha===undefined?1:alpha; font(size,weight);
+  if(maxW){ var w=X.measureText(s).width; if(w>maxW && w>0){ size=size*maxW/w; font(size,weight); } }
+  X.fillStyle=color; X.textAlign=align||'left'; X.textBaseline='middle';
+  X.fillText(s,x,y); X.restore(); return size;
+}
+function sh(s,x,y,size,color,align,weight,alpha){
+  X.save(); X.globalAlpha=alpha===undefined?1:alpha; font(size,weight);
+  X.fillStyle='rgba(0,0,0,0.55)'; X.textAlign=align||'left'; X.textBaseline='middle';
+  X.fillText(s,x+2,y+2); X.fillStyle=color; X.fillText(s,x,y); X.restore();
+}
+/* 多行文本 */
+function blk(arr,x,y,size,color,lh,alpha,maxW,align){
+  for(var i=0;i<arr.length;i++) txt(arr[i],x,y+i*(lh||size*1.5),size,color,align||'left',500,alpha,maxW);
+}
+function ring(x,y,r,color,lw,alpha,dash){
+  X.save(); X.globalAlpha=alpha===undefined?1:alpha; X.strokeStyle=color; X.lineWidth=lw||2;
+  if(dash) X.setLineDash(dash);
+  X.beginPath(); X.arc(x,y,r,0,Math.PI*2); X.stroke(); X.restore();
+}
+function disc(x,y,r,c1,c2,alpha){
+  X.save(); X.globalAlpha=alpha===undefined?1:alpha;
+  var g=X.createRadialGradient(x-r*0.15,y-r*0.2,r*0.05,x,y,r);
+  g.addColorStop(0,c1); g.addColorStop(1,c2);
+  X.fillStyle=g; X.beginPath(); X.arc(x,y,r,0,Math.PI*2); X.fill(); X.restore();
+}
+function glow(x,y,r,color,alpha){
+  X.save(); X.globalAlpha=alpha; var g=X.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,color); g.addColorStop(1,'rgba(0,0,0,0)');
+  X.fillStyle=g; X.beginPath(); X.arc(x,y,r,0,Math.PI*2); X.fill(); X.restore();
+}
+/* 强调圈（替代满屏红框） */
+function circ(x,y,r,tt,color){
+  var a=1-ez(tt); if(a<=0)return;
+  X.save(); X.globalAlpha=a*0.9; X.strokeStyle=color||YEL; X.lineWidth=3;
+  X.beginPath(); X.arc(x,y,r*(1+0.35*(1-a)),0,Math.PI*2); X.stroke(); X.restore();
+}
+function poly(pts,color,lw,alpha,fill){
+  X.save(); X.globalAlpha=alpha===undefined?1:alpha; X.beginPath();
+  for(var i=0;i<pts.length;i++){ if(i===0)X.moveTo(pts[i][0],pts[i][1]); else X.lineTo(pts[i][0],pts[i][1]); }
+  X.closePath(); if(fill){X.fillStyle=fill;X.fill();} X.strokeStyle=color; X.lineWidth=lw||2; X.stroke(); X.restore();
+}
+function wv(x0,x1,y,amp,len,ph,color,lw,alpha,prog){
+  X.save(); X.globalAlpha=alpha===undefined?1:alpha; X.strokeStyle=color; X.lineWidth=lw||2;
+  X.beginPath(); var n=Math.max(2,Math.floor((x1-x0)/2));
+  for(var i=0;i<=n;i++){ var px=lp(x0,x1,i/n); if(px>x0+(x1-x0)*prog) break;
+    var yy=y+amp*Math.sin((px-x0)/len*Math.PI*2+ph);
+    if(i===0)X.moveTo(px,yy); else X.lineTo(px,yy); }
+  X.stroke(); X.restore();
+}
+
+/* ---------- 星野 ---------- */
+var STARS=[]; (function(){ var sd=20261101;
+  function rnd(){ sd=(sd*1103515245+12345)&0x7fffffff; return sd/0x7fffffff; }
+  for(var i=0;i<260;i++) STARS.push({x:rnd()*W*1.2-W*0.1,y:rnd()*H,r:rnd()*1.5+0.3,a:rnd()*0.6+0.25,p:rnd()*0.7+0.15});
+})();
+function starfield(px,py,scale,alpha){
+  X.save(); X.globalAlpha=alpha===undefined?1:alpha;
+  for(var i=0;i<STARS.length;i++){ var s=STARS[i];
+    var sx=((s.x-px*s.p)% (W*1.2)+W*1.2)%(W*1.2)-W*0.1, sy=((s.y-py*s.p)%H+H)%H;
+    X.globalAlpha=(alpha===undefined?1:alpha)*s.a; X.fillStyle= i%17===0?BLU:FG;
+    X.beginPath(); X.arc(sx,sy,s.r*(scale||1),0,Math.PI*2); X.fill(); }
+  X.restore();
+}
+function vignette(){
+  var g=X.createRadialGradient(W/2,H/2,H*0.35,W/2,H/2,H*0.95);
+  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.55)');
+  X.fillStyle=g; X.fillRect(0,0,W,H);
+}
+
+/* ---------- 恒星绘制 ---------- */
+function star(x,y,r,ts,alpha,coreColor){
+  X.save(); X.globalAlpha=alpha===undefined?1:alpha;
+  glow(x,y,r*2.6,'rgba(240,138,75,0.45)',0.5*(alpha===undefined?1:alpha));
+  var g=X.createRadialGradient(x-r*0.2,y-r*0.25,r*0.05,x,y,r);
+  g.addColorStop(0,'#FFE3B0'); g.addColorStop(0.45,'#F9A44C'); g.addColorStop(1,'#C9522B');
+  X.fillStyle=g; X.beginPath(); X.arc(x,y,r,0,Math.PI*2); X.fill();
+  // 米粒组织
+  X.globalAlpha=0.18*(alpha===undefined?1:alpha);
+  for(var i=0;i<14;i++){ var a=i*2.399+ts*0.35, rr=r*(0.25+0.55*((i%5)/5));
+    X.fillStyle= i%3?'#FFD9A0':'#B94A22';
+    X.beginPath(); X.arc(x+Math.cos(a)*rr, y+Math.sin(a*1.3)*rr*0.8, r*0.09,0,Math.PI*2); X.fill(); }
+  X.restore();
+  if(coreColor) disc(x,y,r*0.22,coreColor,coreColor,0.9*(alpha===undefined?1:alpha));
+}
+
+/* ============================================================
+   场景 1：冷开场（0–14s）
+   ============================================================ */
+function s1(x){
+  var a = sg(x,-0.2,14.2,0.4,0.6); if(a<=0) return;
+  var cx=W/2, cy=350, ts=x;
+  starfield(ts*6,0,1,a*0.9);
+  star(cx,cy,88+5*Math.sin(ts*1.1),ts,a);
+  // 轨道（透视压扁）+ 行星
+  var orb=170, ry=orb*0.34;
+  X.save(); X.globalAlpha=a*0.55; X.strokeStyle=BLU; X.lineWidth=1.5; X.setLineDash([5,7]);
+  X.beginPath(); X.ellipse(cx,cy,orb,ry,0,0,Math.PI*2); X.stroke(); X.restore();
+  var ang = ts*0.95 + 0.6;
+  var px=cx+Math.cos(ang)*orb, py=cy+Math.sin(ang)*ry;
+  disc(px,py,7,'#DFF6FF',BLU,a); glow(px,py,22,'rgba(88,196,221,0.7)',a*0.8);
+  // 连线
+  X.save(); X.globalAlpha=a*0.25; X.strokeStyle=BLU; X.lineWidth=1;
+  X.beginPath(); X.moveTo(cx,cy); X.lineTo(px,py); X.stroke(); X.restore();
+  // 数字 30 浮现（先看见，再命名）
+  var na = ez(inv(ts,6,8.2));
+  if(na>0){
+    txt('30',cx,cy+ry+78,86,YEL,'center',700,na);
+    txt('天 · 绕恒星一圈',cx,cy+ry+140,30,FG,'center',500,na*0.9);
+    txt('轨道半径 = 0.18 个日地距离',cx,cy+ry+182,24,BLU,'center',500,na*0.85);
+    circ(cx,cy+ry+78,74,1-ez(inv(ts,6,8.2)));
+  }
+  if(ts>10.5) txt('↑ 这颗行星',px-4,py-26,20,FG,'center',500,a*ez(inv(ts,10.5,12)));
+}
+
+/* ============================================================
+   场景 2：膨胀吞噬（14–25s）
+   ============================================================ */
+function s2(x){
+  var a = sg(x,13.6,25.4,0.4,0.4); if(a<=0) return;
+  var cx=W/2, cy=350, ts=x-14;
+  starfield(ts*3,0,1,a*0.8);
+  var pulse = ts<6 ? eo(inv(ts,0.3,5.5)) : 1-eo(inv(ts,7.5,10.5));
+  var R = lp(88,395,pulse);
+  star(cx,cy,88+5*Math.sin(x*1.1),x,a);
+  // 橙色最大膨胀范围环
+  X.save(); X.globalAlpha=a*(0.16+0.22*pulse); X.fillStyle=ORG;
+  X.beginPath(); X.arc(cx,cy,R,0,Math.PI*2); X.fill(); X.restore();
+  ring(cx,cy,R,ORG,3,a*0.85,[10,8]);
+  // 被吞没的轨道
+  var orb=170, ry=orb*0.34, ang=x*0.95+0.6;
+  var px=cx+Math.cos(ang)*orb, py=cy+Math.sin(ang)*ry;
+  var eaten = pulse;
+  X.save(); X.globalAlpha=a*0.6; X.strokeStyle= eaten>0.55? DIM : BLU; X.lineWidth=1.5; X.setLineDash([5,7]);
+  X.beginPath(); X.ellipse(cx,cy,orb,ry,0,0,Math.PI*2); X.stroke(); X.restore();
+  disc(px,py,7, eaten>0.55? '#8A8A8A' : '#DFF6FF', eaten>0.55? DIM : BLU, a*(eaten>0.55?0.5:1));
+  if(ts>0.4) txt('宿主星当年的最大半径',cx,cy-R-22,24,ORG,'center',500,a*ez(inv(ts,0.4,1.6)));
+  if(pulse>0.6) txt('整条轨道 · 被包住',cx,cy+ry+40,30,RED,'center',600,a*ez(inv(pulse,0.6,0.95)));
+  if(ts>9.6){ var k=ez(inv(ts,9.6,11));
+    txt('可它 · 还在',cx,cy-140,44,YEL,'center',700,a*k); circ(cx,cy,110,1-k,YEL); }
+}
+
+/* ============================================================
+   场景 3：恒星演化时间轴（25–45s）
+   ============================================================ */
+function s3(x){
+  var a = sg(x,24.6,45.4,0.4,0.4); if(a<=0) return;
+  var cx=W/2, cy=300, ts=x-25;
+  starfield(ts*2,0,0.6,a*0.5);
+  // 恒星形态
+  var r, col, lab='';
+  if(ts<5){ r=lp(30,30,1); col='#FFE9B8'; lab='主序星：核心烧氢'; }
+  else if(ts<9){ r=lp(30,34,inv(ts,5,9)); col='#E8B36A'; lab='核心氢耗尽'; }
+  else if(ts<15){ r=lp(34,215,eo(inv(ts,9,15))); col='#F08A4B'; lab='红巨星：外壳膨胀 ×100'; }
+  else if(ts<16.6){ r=lp(215,110,eo(inv(ts,15,16.6))); col='#FFD9A0'; lab='氦闪'; }
+  else { r=lp(110,105,inv(ts,16.6,20)); col='#F9A44C'; lab='红团簇：核心烧氦'; }
+  star(cx,cy,r,x,a, ts>=16.6?'#FFFFFF':null);
+  if(ts>=15&&ts<16.8){ glow(cx,cy,r*3,'rgba(255,255,255,0.9)',a*(1-inv(ts,15,16.8))); }
+  // 时间轴
+  var x0=130,x1=1150,y=618;
+  X.save(); X.globalAlpha=a*0.5; X.strokeStyle=DIM; X.lineWidth=2;
+  X.beginPath(); X.moveTo(x0,y); X.lineTo(x1,y); X.stroke(); X.restore();
+  var nodes=[[0,'主序'],[5,'氢耗尽'],[9,'红巨星'],[15,'氦闪'],[16.8,'红团簇']];
+  for(var i=0;i<nodes.length;i++){
+    var nx=lp(x0,x1,nodes[i][0]/20), on = ts>=nodes[i][0];
+    X.save(); X.globalAlpha=a*(on?1:0.35); X.fillStyle= on?YEL:DIM;
+    X.beginPath(); X.arc(nx,y,7,0,Math.PI*2); X.fill(); X.restore();
+    txt(nodes[i][1],nx,y+30,20,on?FG:DIM,'center',500,a*(on?1:0.5));
+  }
+  var px=lp(x0,x1,cl(ts,0,20)/20);
+  X.save(); X.globalAlpha=a; X.strokeStyle=BLU; X.lineWidth=3;
+  X.beginPath(); X.moveTo(px,y-16); X.lineTo(px,y+16); X.stroke(); X.restore();
+  txt(lab,cx,cy+r+ (r>150?46:60),28,YEL,'center',600,a);
+  if(ts>17.5) txt('关键：它确实经历过那场大膨胀',cx,cy-r-40,24,BLU,'center',500,a*ez(inv(ts,17.5,19)));
+}
+
+/* ============================================================
+   场景 4：三条轨道全在禁区（45–70s）
+   ============================================================ */
+var SYSN=[['24 Boo','牧夫座 24','~30 天'],['HD 12648','','~ 数十天'],['TYC 4282-605-1','','~ 数十天']];
+function s4(x){
+  var a = sg(x,44.6,70.4,0.4,0.4); if(a<=0) return;
+  var cx=470, cy=360, ts=x-45;
+  starfield(ts*2,0,0.6,a*0.5);
+  star(cx,cy,120,x*0.6,a,'#FFF3D0');
+  var RMAX=300;
+  ring(cx,cy,RMAX,ORG,3,a*0.8,[12,9]);
+  txt('当年最大膨胀半径',cx,cy-RMAX-20,20,ORG,'center',500,a*ez(inv(ts,0,1.5)));
+  var orbs=[172,222,272];
+  for(var i=0;i<3;i++){
+    var on = ez(inv(ts, 3+i*4.5, 4.4+i*4.5));
+    if(on<=0) continue;
+    var ry=orbs[i]*0.32, ang=x*0.5+i*2.1;
+    X.save(); X.globalAlpha=a*on*0.7; X.strokeStyle=BLU; X.lineWidth=1.6; X.setLineDash([4,6]);
+    X.beginPath(); X.ellipse(cx,cy,orbs[i],ry,0,0,Math.PI*2); X.stroke(); X.restore();
+    var px=cx+Math.cos(ang)*orbs[i], py=cy+Math.sin(ang)*ry;
+    disc(px,py,6.5,'#DFF6FF',BLU,a*on);
+    glow(px,py,18,'rgba(88,196,221,0.6)',a*on*0.7);
+  }
+  // 右侧列表
+  for(var j=0;j<3;j++){
+    var o2 = ez(inv(ts, 3+j*4.5, 4.4+j*4.5));
+    if(o2<=0) continue;
+    var yy=210+j*118;
+    X.save(); X.globalAlpha=a*o2; X.fillStyle='rgba(88,196,221,0.10)';
+    X.fillRect(880,yy-34,340,86); X.restore();
+    txt(SYSN[j][0],900,yy-8,28, o2>0.9?YEL:FG,'left',600,a*o2);
+    txt('轨道周期 '+SYSN[j][2],900,yy+30,20,BLU,'left',500,a*o2*0.95);
+    txt('轨道 < 最大膨胀半径',900,yy+56,18,RED,'left',500,a*o2*0.9*ez(inv(ts,4.5+j*4.5,6+j*4.5)));
+  }
+  if(ts>17) txt('三条轨道 · 全部落在理论禁区',640,86,32,RED,'center',600,a*ez(inv(ts,17,19)));
+}
+
+/* ============================================================
+   场景 5：星震学（70–100s）
+   ============================================================ */
+function s5(x){
+  var a = sg(x,69.6,100.4,0.4,0.4); if(a<=0) return;
+  var ts=x-70;
+  starfield(ts*2,0,0.5,a*0.4);
+  // 70–80：两颗一样的星
+  var a1 = sg(ts,-0.3,10.6,0.4,0.7);
+  if(a1>0){
+    star(400,250,95,x*0.5,a1); star(880,250,95,x*0.5,a1);
+    txt('红巨星',400,380,26,FG,'center',500,a1); txt('红团簇巨星',880,380,26,FG,'center',500,a1);
+    txt('温度、亮度几乎一样 —— 照片分不出来',640,430,26,DIM,'center',500,a1*ez(inv(ts,1.5,3)));
+    var xa=ez(inv(ts,3.5,5));
+    X.save(); X.globalAlpha=a1*xa; X.strokeStyle=RED; X.lineWidth=9;
+    X.beginPath(); X.moveTo(520,160); X.lineTo(760,340); X.moveTo(760,160); X.lineTo(520,340); X.stroke(); X.restore();
+  }
+  // 80–90：TESS + 光变曲线
+  var a2 = sg(ts,9.6,20.6,0.6,0.6);
+  if(a2>0){
+    // 卫星
+    var sx=lp(230,300,Math.sin(ts*0.6)), sy=110;
+    X.save(); X.globalAlpha=a2;
+    poly([[sx,sy],[sx+30,sy-16],[sx+30,sy+16]],DIM,2,a2,null);
+    poly([[sx-52,sy-10],[sx-52,sy+10],[sx-32,sy+10],[sx-32,sy-10]],BLU,2,a2,'rgba(88,196,221,0.25)');
+    poly([[sx+52,sy-10],[sx+52,sy+10],[sx+32,sy+10],[sx+32,sy-10]],BLU,2,a2,'rgba(88,196,221,0.25)');
+    X.restore();
+    txt('TESS',sx,74,18,BLU,'center',600,a2);
+    X.save(); X.globalAlpha=a2*0.18; X.fillStyle=BLU;
+    X.beginPath(); X.moveTo(sx,140); X.lineTo(180,520); X.lineTo(1100,520); X.closePath(); X.fill(); X.restore();
+    star(640,560,70,x*0.5,a2*0.9);
+    // 光变曲线
+    var prog = eo(inv(ts,10.5,16));
+    X.save(); X.globalAlpha=a2*0.85; X.strokeStyle=YEL; X.lineWidth=2.5; X.beginPath();
+    var x0=180,x1=1100,base=300;
+    for(var i=0;i<=460;i++){ var pxx=lp(x0,x1,i/460); if(pxx>x0+(x1-x0)*prog) break;
+      var v=Math.sin((pxx-x0)*0.055)*7 + Math.sin((pxx-x0)*0.014)*11 + Math.sin((pxx-x0)*0.19)*2.4;
+      var yy=base+v; if(i===0)X.moveTo(pxx,yy); else X.lineTo(pxx,yy); }
+    X.stroke(); X.restore();
+    txt('亮度随时间（放大百万倍）',x0+4,262,20,YEL,'left',500,a2*ez(inv(ts,12,14)));
+  }
+  // 88–100：分解
+  var a3 = sg(ts,17.6,30.4,0.6,0.4);
+  if(a3>0){
+    var x0=200,x1=1080;
+    X.save(); X.globalAlpha=a3*0.35; X.strokeStyle=RED; X.lineWidth=2; X.setLineDash([6,6]);
+    X.strokeRect(x0-14,330,(x1-x0)+28,140); X.restore();
+    var p1=eo(inv(ts,18.5,22));
+    wv(x0,x1,372,16,58,0,BLU,2.4,a3*0.95,p1);
+    txt('外层 p 模',x1+0,372,20,BLU,'right',600,a3*p1, 0);
+    if(p1>0.3) txt('外层 p 模',x0-18,372,20,BLU,'right',600,a3*p1);
+    var p2=eo(inv(ts,20.5,24));
+    wv(x0,x1,432,16,150,0,YEL,2.4,a3*0.95,p2);
+    if(p2>0.3) txt('核心 g 模',x0-18,432,20,YEL,'right',600,a3*p2);
+    var p3=eo(inv(ts,23.5,27));
+    X.save(); X.globalAlpha=a3*p3*0.9; X.strokeStyle=FG; X.lineWidth=3; X.beginPath();
+    for(var i=0;i<=440;i++){ var pxx=lp(x0,x1,i/440);
+      var v=Math.sin(pxx*0.055)*7+Math.sin(pxx*0.014)*11;
+      if(i===0)X.moveTo(pxx,500+v); else X.lineTo(pxx,500+v); }
+    X.stroke(); X.restore();
+    if(p3>0.4){ txt('两者叠加 → 直接读到核心状态',640,556,26,FG,'center',600,a3*p3);
+      txt('三颗主星 = 核心氦燃烧阶段',640,596,28,YEL,'center',700,a3*ez(inv(ts,26,28))); }
+  }
+}
+
+/* ============================================================
+   场景 6：视向速度法（100–140s）
+   ============================================================ */
+function s6(x){
+  var a = sg(x,99.6,140.4,0.4,0.4); if(a<=0) return;
+  var ts=x-100;
+  starfield(ts*2,0,0.5,a*0.4);
+  var a1=sg(ts,-0.3,16.4,0.4,0.6);
+  if(a1>0){
+    var ph=ts*0.85, wob=18*Math.sin(ph);
+    star(340+wob,240,62,x*0.5,a1,'#FFF3D0');
+    var px=340+wob-Math.cos(ph)*150, py=240+Math.sin(ph)*46;
+    disc(px,py,7,'#DFF6FF',BLU,a1);
+    X.save(); X.globalAlpha=a1*0.3; X.strokeStyle=DIM; X.lineWidth=1; X.setLineDash([3,4]);
+    X.beginPath(); X.ellipse(340,240,150,46,0,0,Math.PI*2); X.stroke(); X.restore();
+    txt('恒星被行星拽着一起摇摆',340,352,24,FG,'center',500,a1*ez(inv(ts,2,4)));
+    if(ts>3.5){
+      txt('+',340+wob,240,26,YEL,'center',700,a1);
+      txt('行星',px,py+26,18,BLU,'center',500,a1);
+    }
+    // 光谱条
+    var dx=52*Math.sin(ts*0.85);
+    for(var k=0;k<3;k++){
+      X.save(); X.globalAlpha=a1*0.85; X.fillStyle=FG; X.fillRect(640,200+k*46,300,16); X.restore();
+      X.save(); X.globalAlpha=a1; X.fillStyle=BG; X.fillRect(700+dx,200+k*46,10,16); X.restore();
+    }
+    txt(dx>0?'蓝移（靠近）':'红移（远离）',790,170,20,dx>0?BLU:RED,'center',600,a1*ez(inv(ts,5,7)));
+    txt('吸收谱线随速度左右挪动',790,368,20,DIM,'center',500,a1*ez(inv(ts,7,9)));
+  }
+  var a2=sg(ts,15.8,40.4,0.6,0.4);
+  if(a2>0){
+    var x0=200,x1=1080,cy=520;
+    X.save(); X.globalAlpha=a2*0.5; X.strokeStyle=DIM; X.lineWidth=2;
+    X.beginPath(); X.moveTo(x0-30,cy); X.lineTo(x1+20,cy); X.stroke(); X.restore();
+    txt('视向速度',x0-34,cy-120,18,DIM,'right',500,a2);
+    txt('时间（相位）',x1+16,cy+18,18,DIM,'right',500,a2);
+    // 散点 -> 折叠
+    var sd=991; function rnd(){ sd=(sd*1103515245+12345)&0x7fffffff; return sd/0x7fffffff; }
+    var fold=eo(inv(ts,26,33));
+    X.save(); X.globalAlpha=a2;
+    for(var i=0;i<150;i++){
+      var t0=rnd(), v0=rnd()*2-1;
+      var tNow=lp(t0, t0%1, fold), vNow=lp(v0*0.85+Math.sin(t0*12)*0.25, Math.sin(tNow*Math.PI*2)*46/52, fold);
+      var pxp=lp(x0,x1,(tNow%1)), pyp=cy-vNow*52;
+      var aa=a2*ez(inv(ts,17+i*0.06,18+i*0.06));
+      X.globalAlpha=aa*0.85; X.fillStyle= fold>0.6? BLU : DIM;
+      X.beginPath(); X.arc(pxp,pyp,3.2,0,Math.PI*2); X.fill();
+    }
+    X.restore();
+    if(fold>0.3){
+      X.save(); X.globalAlpha=a2*fold*0.9; X.strokeStyle=YEL; X.lineWidth=3; X.beginPath();
+      for(var j=0;j<=200;j++){ var q=j/200, pxx=lp(x0,x1,q), yy=cy-Math.sin(q*Math.PI*2)*46;
+        if(j===0)X.moveTo(pxx,yy); else X.lineTo(pxx,yy); }
+      X.stroke(); X.restore();
+      txt('一条正弦曲线 = 行星的签名',640,cy+78,28,YEL,'center',600,a2*ez(inv(ts,31,34)));
+      txt('24 Boo b：周期 ~30 天 · 已知离红团簇巨星最近',640,cy+118,24,BLU,'center',600,a2*ez(inv(ts,34,37)));
+    }
+  }
+}
+
+/* ============================================================
+   场景 7：尺度对比（140–170s）
+   ============================================================ */
+function s7(x){
+  var a = sg(x,139.6,170.4,0.4,0.4); if(a<=0) return;
+  var ts=x-140;
+  starfield(ts*2,0,0.5,a*0.4);
+  var full=900, x0=190;
+  // 1 AU 条
+  var e1=eo(inv(ts,0,2.2));
+  X.save(); X.globalAlpha=a*e1*0.9; X.fillStyle=BLU; X.fillRect(x0,190,full*e1,26); X.restore();
+  if(e1>0.3){ txt('1 AU',x0+full+18,203,26,BLU,'left',700,a*e1);
+    txt('地球 → 太阳',x0,168,20,FG,'left',500,a*e1); }
+  // 0.18 AU 条
+  var e2=eo(inv(ts,2.2,4.2));
+  var w2=full*0.18*e2;
+  X.save(); X.globalAlpha=a*e2*0.95; X.fillStyle=YEL; X.fillRect(x0,290,w2,26); X.restore();
+  if(e2>0.3){ txt('0.18 AU',x0+full*0.18+18,303,26,YEL,'left',700,a*e2);
+    txt('这颗行星 → 它的太阳',x0,268,20,FG,'left',500,a*e2); }
+  // 圆对比
+  if(ts>5){
+    var k=ez(inv(ts,5,7));
+    txt('今天的太阳',300,420,20,DIM,'center',500,a*k);
+    disc(300,470,16,'#FFE9B8','#F9A44C',a*k);
+    txt('最胖的时候',820,420,20,DIM,'center',500,a*ez(inv(ts,7.5,9)));
+    var gr=lp(16,180,eo(inv(ts,7.5,13)));
+    disc(820,470,gr,'#FFE9B8','#C9522B',a*ez(inv(ts,7.5,9)));
+    ring(820,470,gr,ORG,3,a*0.8*ez(inv(ts,9,11)));
+    txt('半径 ×100',820,470+gr+26,24,ORG,'center',600,a*ez(inv(ts,10,12)));
+    if(ts>12){
+      var k2=ez(inv(ts,12,14));
+      X.save(); X.globalAlpha=a*k2*0.35; X.fillStyle=RED;
+      X.fillRect(x0,290,w2,26); X.restore();
+      txt('它今天的位置，当年是恒星的身体内部',640,640,32,RED,'center',700,a*k2);
+    }
+  }
+}
+
+/* ============================================================
+   场景 8：对照实验 / 三个系统（170–210s）
+   ============================================================ */
+function s8(x){
+  var a = sg(x,169.6,210.4,0.4,0.4); if(a<=0) return;
+  var ts=x-170;
+  starfield(ts*2,0,0.5,a*0.35);
+  var names=['24 Boo','HD 12648','TYC 4282-605-1'];
+  var rows=[['宿主星阶段','核心氦燃烧'],['当年最大膨胀半径','> 现今轨道'],['现今轨道','落在吞噬区内']];
+  for(var i=0;i<3;i++){
+    var o=eo(inv(ts,1+i*1.8,2.6+i*1.8));
+    if(o<=0) continue;
+    var cx=250+i*390, sc=lp(0.86,1,o);
+    X.save(); X.globalAlpha=a*o; X.translate(cx,330); X.scale(sc,sc);
+    X.fillStyle='rgba(236,230,217,0.06)'; X.fillRect(-180,-150,360,300);
+    X.strokeStyle='rgba(88,196,221,0.35)'; X.lineWidth=2; X.strokeRect(-180,-150,360,300);
+    X.restore();
+    X.save(); X.globalAlpha=a*o;
+    txt(names[i],cx,205,26,YEL,'center',700,a*o,340);
+    for(var j=0;j<3;j++){
+      txt(rows[j][0],cx-160,258+j*52,18,DIM,'left',500,a*o);
+      txt(rows[j][1],cx-160,282+j*52,20,j===2?RED:FG,'left',600,a*o);
+    }
+    X.restore();
+    // 印章
+    var st=ez(inv(ts,8+i*0.3,8.6+i*0.3));
+    if(st>0){
+      X.save(); X.globalAlpha=a*st*0.92; X.translate(cx,300);
+      X.rotate(-0.22); X.scale(lp(2.2,1,ez(st)),lp(2.2,1,ez(st)));
+      X.strokeStyle=RED; X.lineWidth=5; X.strokeRect(-92,-44,184,88);
+      txt('禁 区',0,4,44,RED,'center',700,1); X.restore();
+    }
+  }
+  if(ts>10){
+    var n = ts<14?1:(ts<18?2:3);
+    var kk=ez(inv(ts,10,12));
+    txt(n+' 个',640,556,54,YEL,'center',700,a*kk);
+    txt(n===1?'一次偶然 · 可以叫巧合':'三次 · 这就是规律了',640,614,32,n===1?DIM:FG,'center',600,a*kk);
+    if(ts>18){
+      var k3=ez(inv(ts,20,22));
+      txt('The Survival Paradox',640,662,26,BLU,'center',600,a*k3);
+      txt('论文标题：幸存悖论',640,694,20,DIM,'center',500,a*k3);
+    }
+  }
+}
+
+/* ============================================================
+   场景 9：两条逃生路线（210–240s）
+   ============================================================ */
+function s9(x){
+  var a = sg(x,209.6,240.4,0.4,0.4); if(a<=0) return;
+  var ts=x-210;
+  starfield(ts*2,0,0.5,a*0.35);
+  X.save(); X.globalAlpha=a*0.5; X.strokeStyle=DIM; X.lineWidth=2;
+  X.beginPath(); X.moveTo(640,60); X.lineTo(640,660); X.stroke(); X.restore();
+  txt('推测一',320,86,24,YEL,'center',600,a); txt('推测二',960,86,24,YEL,'center',600,a);
+  // 上：再生行星盘
+  var ph=ts*0.7;
+  disc(320,300,54,'#FFE9B8','#F08A4B',a);
+  var spiral = ez(inv(ts,1,4));
+  if(spiral>0){ // 内侧行星被吞
+    var ia=ts*1.4, ir=lp(120,54,ez(inv(ts,0,3.4)));
+    var ix=320+Math.cos(ia)*ir, iy=300+Math.sin(ia)*ir*0.5;
+    disc(ix,iy,6,'#FFD9A0',RED,a*spiral);
+  }
+  var diskA=ez(inv(ts,3.5,7));
+  if(diskA>0){ // 甩出的物质盘
+    X.save(); X.globalAlpha=a*diskA*0.4; X.strokeStyle=ORG; X.lineWidth=14;
+    X.beginPath(); X.ellipse(320,300,190,62,0,0,Math.PI*2); X.stroke(); X.restore();
+    txt('再生行星盘',320,470,22,ORG,'center',600,a*diskA);
+  }
+  var mig=eo(inv(ts,7,15));
+  var mr=lp(240,140,mig);
+  var mx=320+Math.cos(ts*0.8)*mr, my=300+Math.sin(ts*0.8)*mr*0.4;
+  disc(mx,my,8,'#DFF6FF',BLU,a);
+  if(mig>0.1){ X.save(); X.globalAlpha=a*0.4; X.strokeStyle=BLU; X.lineWidth=1.5; X.setLineDash([4,5]);
+    X.beginPath(); X.ellipse(320,300,mr,mr*0.4,0,0,Math.PI*2); X.stroke(); X.restore();
+    txt('轨道在盘里慢慢收进来',320,510,20,BLU,'center',500,a*ez(inv(ts,12,15))); }
+  // 下：双星相互作用
+  var bA=ez(inv(ts,1,3));
+  var ang2=ts*0.6;
+  disc(960+Math.cos(ang2)*70,300+Math.sin(ang2)*24,40,'#FFE9B8','#F9A44C',a*bA);
+  disc(960-Math.cos(ang2)*70,300-Math.sin(ang2)*24,30,'#FFD9A0','#F08A4B',a*bA);
+  var merge=eo(inv(ts,6,11));
+  if(merge>0){
+    disc(960,300,lp(46,110,merge),'#FFE9B8','#C9522B',a);
+    txt('合并 / 相互作用',960,470,22,ORG,'center',600,a*merge);
+    // 稀薄包层点阵
+    X.save(); X.globalAlpha=a*merge*0.35; X.fillStyle=DIM;
+    for(var i=0;i<40;i++){ var aa=i*2.399, rr=lp(130,240,merge);
+      X.beginPath(); X.arc(960+Math.cos(aa)*rr,300+Math.sin(aa)*rr*0.5,2.2,0,Math.PI*2); X.fill(); }
+    X.restore();
+    txt('膨胀期包层变稀薄',960,502,20,DIM,'center',500,a*ez(inv(ts,9,12)));
+  }
+  var back=eo(inv(ts,15,21));
+  var rr2=lp(240,150,back);
+  var bx=960+Math.cos(ts*0.8)*rr2, by=300+Math.sin(ts*0.8)*rr2*0.4;
+  disc(bx,by,8,'#DFF6FF',BLU,a*back);
+  if(back>0.2) txt('收缩后，行星被“放”回近处',960,544,20,BLU,'center',500,a*back);
+  if(ts>22) txt('两条路都还只是推测 · 等待更多观测验证',640,650,26,RED,'center',600,a*ez(inv(ts,22,24)));
+}
+
+/* ============================================================
+   场景 10：边界清单（240–270s）
+   ============================================================ */
+function s10(x){
+  var a = sg(x,239.6,270.4,0.4,0.4); if(a<=0) return;
+  var ts=x-240;
+  starfield(ts*2,0,0.5,a*0.3);
+  var items=[['“存活” = 表面有生命？','✕  不代表有生命',RED],
+             ['可以推出“地球会幸存”？','✕  不能这样推断',RED],
+             ['宜居性能撑到红巨星时代？','✕  可能更早就没了',RED],
+             ['再膨胀一次还能活吗？','？  没人知道',YEL]];
+  for(var i=0;i<4;i++){
+    var o=eo(inv(ts,0.8+i*5.5,2.4+i*5.5));
+    if(o<=0) continue;
+    var yy=170+i*118, sx=lp(-180,0,o);
+    X.save(); X.globalAlpha=a*o; X.translate(sx,0);
+    X.fillStyle='rgba(236,230,217,0.05)'; X.fillRect(150,yy-44,980,88);
+    X.strokeStyle='rgba(236,230,217,0.14)'; X.lineWidth=1.5; X.strokeRect(150,yy-44,980,88);
+    X.restore();
+    txt(items[i][0],180+sx,yy-12,28,FG,'left',600,a*o,780);
+    txt(items[i][1],180+sx,yy+26,24,items[i][2],'left',700,a*o*ez(inv(ts,2.4+i*5.5,3.6+i*5.5)),780);
+  }
+  if(ts>25) txt('先说清楚：它不是什么',640,80,32,YEL,'center',700,a*ez(inv(ts,25,27)));
+}
+
+/* ============================================================
+   场景 11：回到开场 + 50 亿年后（270–300s）
+   ============================================================ */
+function s11(x){
+  var a = sg(x,269.6,300.4,0.4,0.4); if(a<=0) return;
+  var ts=x-270;
+  if(ts<8){
+    var b=sg(ts,-0.2,8.2,0.4,0.6);
+    X.save(); X.globalAlpha=b; s1(ts+2); X.restore();
+    return;
+  }
+  // 拉远
+  var pull = eo(inv(ts,8,15));
+  var sc=lp(1,0.12,pull);
+  X.save();
+  X.translate(W/2,H*0.46); X.scale(sc,sc); X.translate(-W/2,-H*0.46);
+  starfield(ts*4,0,1,0.9);
+  star(W/2,H*0.46,120,x*0.4,0.95,'#FFF3D0');
+  ring(W/2,H*0.46,172,BLU,2,0.6,[4,6]);
+  disc(W/2+Math.cos(x*0.95)*172,H*0.46+Math.sin(x*0.95)*58,8,'#DFF6FF',BLU,0.95);
+  X.restore();
+  if(pull>0.5){
+    // 银河带
+    X.save(); X.globalAlpha=a*(pull-0.5)*0.5;
+    var g=X.createLinearGradient(0,0,W,H); g.addColorStop(0,'rgba(88,196,221,0)');
+    g.addColorStop(0.5,'rgba(236,230,217,0.16)'); g.addColorStop(1,'rgba(88,196,221,0)');
+    X.fillStyle=g; X.beginPath(); X.moveTo(0,H*0.7); X.quadraticCurveTo(W/2,H*0.35,W,H*0.75);
+    X.lineTo(W,H*0.85); X.quadraticCurveTo(W/2,H*0.45,0,H*0.8); X.closePath(); X.fill(); X.restore();
+    txt('+ 50 亿年',W/2,108,30,YEL,'center',700,a*ez(inv(ts,15,17)));
+  }
+  // 太阳系
+  if(ts>16){
+    var k=ez(inv(ts,16,18));
+    X.save(); X.globalAlpha=a*k;
+    var cx=W/2, cy=430;
+    var R0=lp(40,300,eo(inv(ts,18,25)));
+    disc(cx,cy,R0*0.42,'#FFE9B8','#C9522B',a*k);
+    ring(cx,cy,R0,'rgba(240,138,75,0.5)',2,a*k*0.7,[8,8]);
+    var pl=[['水星',0.42,RED],['金星',0.62,RED],['地球',0.85,YEL]];
+    for(var i=0;i<3;i++){
+      var pr=R0*pl[i][1]*(ts>25?1:lp(1,1,1));
+      var ang=x*0.4+i*2.2;
+      ring(cx,cy,pr,'rgba(236,230,217,0.18)',1,a*k*0.6);
+      var dx2=cx+Math.cos(ang)*pr, dy2=cy+Math.sin(ang)*pr*0.34;
+      var hot = (ts>22 && pl[i][1]*R0 < R0*0.9) && i<2;
+      disc(dx2,dy2,7, hot?'#8A5A4A':'#DFF6FF', hot?RED:pl[i][2],a*k);
+      if(ts>23) txt(pl[i][0],dx2,dy2-22,18,hot?RED:FG,'center',500,a*k*0.9);
+    }
+    X.restore();
+    if(ts>24) txt('水星、金星被吞 · 地球悬在边缘',W/2,600,28,RED,'center',600,a*ez(inv(ts,24,26)));
+    if(ts>26) txt('宇宙从来不按教科书出牌',W/2,646,34,YEL,'center',700,a*ez(inv(ts,26,28)));
+  }
+}
+
+/* ============================================================
+   场景 12：落版（300–310s）
+   ============================================================ */
+function s12(x){
+  var a = sg(x,299.4,330,0.6,0); if(a<=0) return;
+  var ts=x-300;
+  X.save(); X.globalAlpha=a*0.9; X.fillStyle=BG; X.fillRect(0,0,W,H); X.restore();
+  starfield(ts*2,0,0.6,a*0.35);
+  var L1=ez(inv(ts,0.3,1.6)), L2=ez(inv(ts,1.2,2.6)), L3=ez(inv(ts,2.2,3.6)),
+      L4=ez(inv(ts,3.4,4.8)), L5=ez(inv(ts,5.0,6.6));
+  txt('科普爆点动画周刊',W/2,190,34,BLU,'center',600,a*L1);
+  txt('第 1 期 · 三颗本不该存在的行星',W/2,268,52,YEL,'center',700,a*L2,1180);
+  txt('The Survival Paradox of Close-In Planets Orbiting Red Clump Giants',W/2,336,22,FG,'center',500,a*L3,1180);
+  txt('来源：PNAS / 云南大学钱声帮团队 / 新华社 · TESS',W/2,410,24,DIM,'center',500,a*L4);
+  txt('下期：一个三十年的地基假设被 AI 宣布推翻，那算不算发现？',W/2,478,26,RED,'center',600,a*L5,1180);
+  X.save(); X.globalAlpha=a*L5*0.6; X.strokeStyle=BLU; X.lineWidth=2;
+  X.beginPath(); X.moveTo(340,520); X.lineTo(940,520); X.stroke(); X.restore();
+  txt('画面 / 配音 / 字幕均为自动化生成 · 数据以公开报道为准',W/2,580,20,DIM,'center',500,a*L5);
+}
+
+/* ---------- 屏幕要点大字 ---------- */
+var TITLES=[[0,14,'30天 · 绕一圈'],[14,25,'它本该已被吞掉'],[25,45,'恒星晚年：膨胀'],
+ [45,70,'三条轨道 · 全在禁区'],[70,100,'听恒星的心跳'],[100,140,'行星在拽恒星'],
+ [140,170,'0.18 个日地距离'],[170,210,'一个巧合 · 三个规律'],[210,240,'两条逃生路线（推测）'],
+ [240,270,'先说清：不是什么'],[270,300,'50亿年后 · 地球呢？'],[300,330,'']];
+function title(ts){
+  for(var i=0;i<TITLES.length;i++){
+    var s=TITLES[i][0], e=TITLES[i][1], s2=TITLES[i][2];
+    if(ts>=s && ts<e && s2){
+      var a=Math.min(ez(inv(ts,s,s+0.8)), 1-ez(inv(ts,e-0.7,e)));
+      if(a<=0.01) return;
+      X.save(); X.globalAlpha=a*0.55; X.fillStyle='rgba(0,0,0,0.5)'; X.fillRect(0,56,W,72); X.restore();
+      txt(s2,W/2,92,40,YEL,'center',700,a,1180);
+      X.save(); X.globalAlpha=a*0.5; X.strokeStyle=YEL; X.lineWidth=2;
+      X.beginPath(); X.moveTo(W/2-160,120); X.lineTo(W/2+160,120); X.stroke(); X.restore();
+      return;
+    }
+  }
+}
+/* ---------- 底部字幕 ---------- */
+function subtitle(t){
+  var cur=null;
+  for(var i=0;i<SUBS.length;i++){ if(t>=SUBS[i][0] && t<SUBS[i][1]){ cur=SUBS[i][2]; break; } }
+  if(!cur) return;
+  X.save();
+  X.globalAlpha=0.55; X.fillStyle='#000'; X.fillRect(0,H-92,W,92); X.restore();
+  var size=34; font(size,600);
+  var w=X.measureText(cur).width;
+  if(w>W-120){ size=size*(W-120)/w; font(size,600); }
+  X.save(); X.globalAlpha=1; X.fillStyle=FG; X.textAlign='center'; X.textBaseline='middle';
+  X.fillText(cur,W/2,H-46); X.restore();
+}
+function brand(){
+  txt('科普爆点动画周刊 · EP01',26,34,20,DIM,'left',500,0.65);
+  X.save(); X.globalAlpha=0.35; X.strokeStyle=BLU; X.lineWidth=2;
+  X.beginPath(); X.moveTo(26,50); X.lineTo(250,50); X.stroke(); X.restore();
+}
+
+/* ---------- 主入口 ---------- */
+function scene(ts){
+  if(ts<14) s1(ts);
+  else if(ts<25) s2(ts);
+  else if(ts<45) s3(ts);
+  else if(ts<70) s4(ts);
+  else if(ts<100) s5(ts);
+  else if(ts<140) s6(ts);
+  else if(ts<170) s7(ts);
+  else if(ts<210) s8(ts);
+  else if(ts<240) s9(ts);
+  else if(ts<270) s10(ts);
+  else if(ts<300) s11(ts);
+  else s12(ts);
+}
+window.renderAt = function(t){
+  var ts = cl(t*(SCRIPT_T/DUR), 0, SCRIPT_T);
+  X.setTransform(1,0,0,1,0,0);
+  X.fillStyle=BG; X.fillRect(0,0,W,H);
+  scene(ts);
+  vignette();
+  title(ts);
+  brand();
+  subtitle(t);
+  // 场景间轻微转场闪
+  var edges=[14,25,45,70,100,140,170,210,240,270,300];
+  for(var i=0;i<edges.length;i++){
+    var d=Math.abs(ts-edges[i]);
+    if(d<0.35){ X.save(); X.globalAlpha=(1-d/0.35)*0.18; X.fillStyle=FG; X.fillRect(0,0,W,H); X.restore(); }
+  }
+};
+window.__ready = true;
+if(!/export=1/.test(location.search)){
+  (function loop(){ var t=(performance.now()-(window.__t0||(window.__t0=performance.now())))/1000;
+    window.renderAt(Math.min(t,DUR)); requestAnimationFrame(loop); })();
+}
+</script>
+</body>
+</html>
